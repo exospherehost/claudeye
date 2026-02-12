@@ -30,8 +30,7 @@ Claudeye lets you replay agent executions, grade them with custom evals, and sur
 ## Quick Start
 
 ```bash
-npm install -g claudeye
-claudeye
+npm install -g claudeye && claudeye
 ```
 
 Opens your browser at `localhost:8020`. Reads from `~/.claude/projects` by default.
