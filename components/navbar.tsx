@@ -21,6 +21,8 @@ export const Navbar: React.FC = () => {
   const router = useRouter();
   const [authActive, setAuthActive] = useState(false);
 
+  // Detect auth on the client by checking for the session cookie.
+  // This avoids a server-round-trip just to show/hide the logout button.
   useEffect(() => {
     setAuthActive(document.cookie.includes("claudeye_auth"));
   }, []);

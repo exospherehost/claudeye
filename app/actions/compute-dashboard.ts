@@ -62,7 +62,8 @@ export async function computeDashboard(viewName?: string): Promise<DashboardActi
       }
     }
 
-    // Process sessions in parallel with concurrency limit
+    // Process sessions in batches of 10 to avoid overwhelming the filesystem
+    // with concurrent reads. Each session triggers a JSONL file read + parse.
     const CONCURRENCY = 10;
     for (let i = 0; i < allSessionTasks.length; i += CONCURRENCY) {
       const batch = allSessionTasks.slice(i, i + CONCURRENCY);
@@ -104,7 +105,8 @@ export async function computeDashboard(viewName?: string): Promise<DashboardActi
       }
     }
 
-    // Derive FilterMeta from computed values
+    // Derive FilterMeta by inspecting the JS type of the first computed value.
+    // This auto-detection determines which UI control to render for each filter.
     const filterMeta: FilterMeta[] = filters.map((f) => {
       const values = allValues[f.name] ?? [];
       if (values.length === 0) {

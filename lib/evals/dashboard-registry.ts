@@ -1,5 +1,10 @@
 /**
  * Module-level singleton filter registry backed by globalThis.
+ *
+ * Filters are keyed by (view, name) — the same filter name can appear in
+ * different views. When no view is specified, filters default to the
+ * "default" view for backward compatibility.
+ *
  * Using globalThis ensures the registry survives webpack chunk splitting
  * and remains a true singleton across dynamic imports.
  */

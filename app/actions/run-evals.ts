@@ -1,11 +1,8 @@
 "use server";
 
-import { ensureEvalsLoaded } from "@/lib/evals/loader";
 import { getSessionScopedEvals } from "@/lib/evals/registry";
 import { runAllEvals } from "@/lib/evals/runner";
-import { getCachedSessionLog } from "@/lib/log-entries";
-import { calculateLogStats } from "@/lib/log-stats";
-import { getCachedResult, setCachedResult } from "@/lib/cache";
+import { runSessionAction } from "./run-session-action";
 import type { EvalRunSummary } from "@/lib/evals/types";
 
 export type EvalActionResult =
@@ -22,41 +19,17 @@ export async function runEvals(
   sessionId: string,
   forceRefresh: boolean = false,
 ): Promise<EvalActionResult> {
-  try {
-    await ensureEvalsLoaded();
+  const result = await runSessionAction<EvalRunSummary>({
+    kind: "evals",
+    projectName,
+    sessionId,
+    forceRefresh,
+    getItems: getSessionScopedEvals,
+    run: (rawLines, stats, items) =>
+      runAllEvals(rawLines, stats, projectName, sessionId, items as any, { scope: 'session' }),
+  });
 
-    const sessionEvals = getSessionScopedEvals();
-    if (sessionEvals.length === 0) {
-      return { ok: true, hasEvals: false };
-    }
-
-    const registeredNames = sessionEvals.map((e) => e.name);
-
-    // Check cache unless force refresh requested
-    if (!forceRefresh) {
-      const cached = await getCachedResult<EvalRunSummary>(
-        "evals",
-        projectName,
-        sessionId,
-        registeredNames,
-      );
-      if (cached) {
-        return { ok: true, summary: cached.value, hasEvals: true, cached: true };
-      }
-    }
-
-    const { entries, rawLines } = await getCachedSessionLog(projectName, sessionId);
-    const stats = calculateLogStats(entries);
-    const summary = await runAllEvals(rawLines, stats, projectName, sessionId, sessionEvals, { scope: 'session' });
-
-    // Store in cache (fire-and-forget)
-    setCachedResult("evals", projectName, sessionId, summary, registeredNames);
-
-    return { ok: true, summary, hasEvals: true, cached: false };
-  } catch (err) {
-    return {
-      ok: false,
-      error: err instanceof Error ? err.message : String(err),
-    };
-  }
+  if (!result.ok) return result;
+  if (!result.hasItems) return { ok: true, hasEvals: false };
+  return { ok: true, summary: result.summary, hasEvals: true, cached: result.cached };
 }

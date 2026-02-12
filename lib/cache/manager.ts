@@ -34,6 +34,11 @@ export function initCacheBackend(): CacheBackend | null {
   return backend;
 }
 
+/**
+ * Build a composite cache key.
+ * For session-level results:  "evals/my-project/uuid-here"
+ * For subagent-level results: "evals/my-project/uuid-here/agent-abc123"
+ */
 function cacheKey(kind: "evals" | "enrichments", projectName: string, sessionKey: string): string {
   return `${kind}/${projectName}/${sessionKey}`;
 }

@@ -27,7 +27,8 @@ export interface SessionFile {
   sessionId?: string;
 }
 
-/** Stats a path and returns mtime, falling back to epoch on error. */
+/** Stats a path and returns mtime. Falls back to epoch (1970-01-01) on error
+ *  so that callers always get a valid Date for sorting without try/catch. */
 async function getMtime(path: string, label: string): Promise<Date> {
   try {
     return (await stat(path)).mtime;
@@ -94,6 +95,7 @@ export function getProjectPath(projectName: string): string {
  * @returns Extracted session ID or undefined if not found
  */
 export function extractSessionId(filename: string): string | undefined {
+  // Claude session files are named <uuid>.jsonl — extract the UUID portion
   const uuidPattern = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
   const match = filename.match(uuidPattern);
   return match ? match[0] : undefined;

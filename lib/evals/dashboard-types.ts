@@ -1,6 +1,12 @@
 /**
  * Type definitions for the dashboard filter system.
- * Filters return boolean/number/string values that auto-determine UI controls.
+ *
+ * Filters return boolean/number/string values. The UI control type is
+ * auto-detected from the first non-null computed value across all sessions:
+ *   - boolean → three-state toggle (true / false / any)
+ *   - number  → range slider with observed min/max
+ *   - string  → multi-select dropdown with observed unique values
+ *
  * Reuses EvalContext from types.ts — no duplication.
  */
 import type { EvalContext, ConditionFunction } from "./types";
