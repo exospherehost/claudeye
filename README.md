@@ -30,8 +30,7 @@ Claudeye lets you replay agent executions, grade them with custom evals, and sur
 ## Quick Start
 
 ```bash
-npm install -g claudeye
-claudeye
+npm install -g claudeye && claudeye
 ```
 
 Opens your browser at `localhost:8020`. Reads from `~/.claude/projects` by default.
@@ -67,6 +66,7 @@ Works with [Claude Code](https://docs.anthropic.com/en/docs/claude-code) session
 ### Utilize
 
 - **Custom enrichments** - compute metadata (token counts, quality signals, labels) as key-value pairs
+- **Dashboard views & filters** - organize filters into named views, each with focused filter tiles (boolean toggles, range sliders, multi-select dropdowns) and a filterable sessions table
 - **JSONL export** - download raw session logs
 - **Auto-refresh** - monitor live sessions at 5s, 10s, or 30s intervals
 - **Light/dark theme** - with system preference detection
@@ -79,6 +79,7 @@ Works with [Claude Code](https://docs.anthropic.com/en/docs/claude-code) session
 | `--port <number>` | Port to bind | `8020` |
 | `--host <address>` | Host to bind (`0.0.0.0` for LAN) | `localhost` |
 | `--evals <path>` | Path to evals/enrichments file | - |
+| `--auth-user <user:pass>` | Add an auth user (repeatable) | - |
 | `--cache <on\|off>` | Enable/disable result caching | `on` |
 | `--cache-path <path>` | Custom cache directory | `~/.claudeye/cache` |
 | `--cache-clear` | Clear all cached results and exit | - |
@@ -99,6 +100,12 @@ claudeye --host 0.0.0.0
 
 # Load custom evals and enrichments
 claudeye --evals ./my-evals.js
+
+# Password-protect the dashboard
+claudeye --auth-user admin:secret
+
+# Multiple auth users
+claudeye --auth-user admin:secret --auth-user viewer:readonly
 
 # Clear cached results
 claudeye --cache-clear
@@ -172,6 +179,36 @@ app.enrich('session-overview', ({ entries, stats }) => ({
 
 [Read more: Enrichments API and EnrichmentResult type &rarr;](docs/api-reference.md#appenrich-name-fn-options)
 
+### Dashboard Views & Filters
+
+Organize dashboard filters into **named views** — each with a focused set of filters. Views appear as cards on `/dashboard` and link to `/dashboard/[viewName]`:
+
+```js
+// Named views with chainable .filter()
+app.dashboard.view('performance', { label: 'Performance Metrics' })
+  .filter('turn-count', ({ stats }) => stats.turnCount, { label: 'Turn Count' })
+  .filter('tool-calls', ({ stats }) => stats.toolCallCount, { label: 'Tool Calls' });
+
+app.dashboard.view('quality', { label: 'Quality Checks' })
+  .filter('has-errors', ({ entries }) =>
+    entries.some(e => e.type === 'assistant' &&
+      Array.isArray(e.message?.content) &&
+      e.message.content.some(b => b.type === 'tool_use' && b.is_error)),
+    { label: 'Has Errors' })
+  .filter('primary-model', ({ stats }) => stats.models[0] || 'unknown',
+    { label: 'Primary Model' });
+
+// Backward-compat: app.dashboard.filter() still works (goes to "default" view)
+app.dashboard.filter('uses-subagents', ({ stats }) => stats.subagentCount > 0,
+  { label: 'Uses Subagents' }
+);
+```
+
+Filter return types (`boolean`, `number`, `string`) auto-determine the UI control: toggle tiles, range sliders, or multi-select dropdowns. Values are computed server-side, then filtering happens client-side for instant interaction.
+
+[Read more: Dashboard Views API &rarr;](docs/api-reference.md#appdashboardview-name-options)
+[Read more: Dashboard Filters API &rarr;](docs/api-reference.md#appdashboardfilter-name-fn-options)
+
 ### Conditions
 
 Conditions gate when evals and enrichments run. Set a **global condition** with `app.condition()` to skip everything for certain sessions, or add a **per-item condition** in the options:
@@ -230,15 +267,56 @@ claudeye --cache-path /tmp/cc  # Custom cache location
 claudeye --cache-clear         # Clear cache and exit
 ```
 
+## Authentication
+
+Claudeye ships with **opt-in** username/password auth. When no users are configured, everything works exactly as before — no login page, no blocking.
+
+### Enable via CLI
+
+```bash
+# Single user
+claudeye --auth-user admin:secret
+
+# Multiple users
+claudeye --auth-user admin:secret --auth-user viewer:readonly
+```
+
+### Enable via environment variable
+
+```bash
+CLAUDEYE_AUTH_USERS=admin:secret claudeye
+CLAUDEYE_AUTH_USERS=admin:secret,viewer:readonly claudeye
+```
+
+### Enable via the programmatic API
+
+```js
+import { createApp } from 'claudeye';
+
+const app = createApp();
+
+app.auth({ users: [
+  { username: 'admin', password: 'secret' },
+  { username: 'viewer', password: 'readonly' },
+] });
+
+app.listen();
+```
+
+All three methods can be combined — users from CLI flags, the env var, and `app.auth()` are merged together.
+
+When auth is active, all UI routes redirect to `/login`. After signing in, a signed session cookie (24h expiry) grants access. A **Sign out** button appears in the navbar.
+
 ## How It Works
 
-1. `createApp()` + `app.eval()` / `app.enrich()` / `app.condition()` register functions in global registries
+1. `createApp()` + `app.eval()` / `app.enrich()` / `app.condition()` / `app.dashboard.view()` / `app.dashboard.filter()` register functions in global registries
 2. When you run `claudeye --evals ./my-file.js`, the server dynamically imports your file, populating the registries
 3. When the dashboard loads a session, server actions run all registered evals and enrichers against the session's raw JSONL lines
 4. The global condition is checked first. If it fails, everything is skipped
 5. Per-item conditions are checked individually. Skipped items don't block others
 6. Each function is individually error-isolated. If one throws, the others still run
 7. Results are serialized and displayed in separate panels in the dashboard UI
+8. Named dashboard views (`/dashboard`) show a view index; each view (`/dashboard/[viewName]`) computes filter values across all projects/sessions, then filters client-side for instant interaction
 
 ## Contributing
 

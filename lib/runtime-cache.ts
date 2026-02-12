@@ -1,6 +1,13 @@
 /**
- * Simple in-memory cache with TTL, used instead of Next.js `unstable_cache`
- * to avoid the Data Cache persisting stale build-time results to disk.
+ * Simple in-memory cache with TTL, used instead of Next.js `unstable_cache`.
+ *
+ * Next.js Data Cache writes results to .next/cache at build time and
+ * re-serves them indefinitely unless explicitly revalidated. Since our
+ * data comes from local JSONL files that change outside of Next.js,
+ * those stale build-time entries cause ghost data on first load.
+ *
+ * This in-process Map-based cache avoids that problem: entries expire
+ * after `revalidateSeconds` and are never persisted to disk.
  */
 export function runtimeCache<TArgs extends unknown[], TResult>(
   fn: (...args: TArgs) => Promise<TResult>,

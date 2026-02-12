@@ -10,6 +10,7 @@ export interface ParsedScriptArgs {
   evalsPath: string | undefined;
   cacheMode: string | undefined;
   cachePath: string | undefined;
+  authUsers: string[];
   remainingArgs: string[];
 }
 
@@ -19,6 +20,7 @@ export function parseScriptArgs(argv: string[]): ParsedScriptArgs {
   let evalsPath: string | undefined;
   let cacheMode: string | undefined;
   let cachePath: string | undefined;
+  const authUsers: string[] = [];
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -75,7 +77,41 @@ export function parseScriptArgs(argv: string[]): ParsedScriptArgs {
       i--;
       continue;
     }
+
+    if (flag === "--auth-user") {
+      const value = inlineValue ?? args[i + 1];
+      if (value === undefined || (inlineValue === null && value.startsWith("-"))) {
+        console.error("Error: --auth-user requires a username:password argument");
+        process.exit(1);
+      }
+      if (!value.includes(":")) {
+        console.error("Error: --auth-user must be in username:password format");
+        process.exit(1);
+      }
+      authUsers.push(value);
+      args.splice(i, inlineValue !== null ? 1 : 2);
+      i--;
+      continue;
+    }
   }
 
-  return { claudeProjectsPath, evalsPath, cacheMode, cachePath, remainingArgs: args };
+  // Sanitize process.argv to mask passwords (prevents secondary leakage via
+  // process.argv inspection; npm's command echo cannot be fixed from here).
+  for (let j = 0; j < process.argv.length; j++) {
+    const raw = process.argv[j];
+    if (raw === "--auth-user" && process.argv[j + 1]) {
+      const colon = process.argv[j + 1].indexOf(":");
+      if (colon >= 0) {
+        process.argv[j + 1] = process.argv[j + 1].slice(0, colon + 1) + "***";
+      }
+    } else if (raw.startsWith("--auth-user=")) {
+      const valStart = "--auth-user=".length;
+      const colon = raw.indexOf(":", valStart);
+      if (colon >= 0) {
+        process.argv[j] = raw.slice(0, colon + 1) + "***";
+      }
+    }
+  }
+
+  return { claudeProjectsPath, evalsPath, cacheMode, cachePath, authUsers, remainingArgs: args };
 }

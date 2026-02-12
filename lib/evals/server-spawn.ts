@@ -7,7 +7,9 @@ import { spawn, execSync } from "node:child_process";
 import { createServer } from "node:net";
 import { resolve, dirname } from "node:path";
 import { existsSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 import { platform, networkInterfaces } from "node:os";
+import { getAuthUsers } from "./auth-registry";
 
 interface SpawnOptions {
   open?: boolean;
@@ -156,6 +158,19 @@ export async function spawnServer(preferredPort: number, options: SpawnOptions):
   };
   if (evalsModule) {
     env.CLAUDEYE_EVALS_MODULE = evalsModule;
+  }
+
+  // Merge auth users from registry (app.auth()) with env var (CLI/env)
+  const registryUsers = getAuthUsers();
+  const existingRaw = process.env.CLAUDEYE_AUTH_USERS ?? "";
+  const registryRaw = registryUsers.map((u) => `${u.username}:${u.password}`).join(",");
+  const allAuthRaw = [existingRaw, registryRaw].filter(Boolean).join(",");
+  if (allAuthRaw) {
+    env.CLAUDEYE_AUTH_USERS = allAuthRaw;
+    env.CLAUDEYE_AUTH_SECRET = process.env.CLAUDEYE_AUTH_SECRET ?? randomBytes(32).toString("hex");
+    const usernames = allAuthRaw.split(",").map((u) => u.split(":")[0]);
+    console.log(`  Auth:     enabled for ${usernames.join(", ")}`);
+    console.log();
   }
 
   const child = spawnChildProcess(resolveServerInfo(), env, port);

@@ -11,7 +11,13 @@ export interface LogStats {
   models: string[];
 }
 
-/** Computes summary statistics from parsed log entries. */
+/**
+ * Computes summary statistics from parsed log entries.
+ *
+ * Iterates entries once, counting users, assistants, tool calls, and
+ * subagent spawns. Duration is derived from the timestamp delta between
+ * the first and last entry. Models are de-duplicated into a set.
+ */
 export function calculateLogStats(entries: LogEntry[]): LogStats {
   let userCount = 0;
   let assistantCount = 0;

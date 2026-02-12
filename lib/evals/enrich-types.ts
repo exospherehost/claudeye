@@ -1,6 +1,10 @@
 /**
  * Type definitions for the enrichment system.
- * Enrichers return key-value metadata for sessions (as opposed to evals which grade them).
+ *
+ * Enrichers extract key-value metadata from session logs (e.g. token counts,
+ * model names, costs) as opposed to evals which grade them with pass/fail.
+ * The returned data is displayed in the session detail panel alongside evals.
+ *
  * Reuses EvalContext from types.ts — no duplication.
  */
 import type { EvalContext, ConditionFunction, EvalScope } from "./types";
