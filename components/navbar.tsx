@@ -59,7 +59,9 @@ export const Navbar: React.FC = () => {
 
             <nav className="flex items-center h-16">
               {NAV_LINKS.map(({ href, label, icon: Icon }) => {
-                const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
+                const active = href === "/"
+                  ? pathname === "/" || pathname.startsWith("/project")
+                  : pathname.startsWith(href);
                 return (
                   <Link
                     key={href}
