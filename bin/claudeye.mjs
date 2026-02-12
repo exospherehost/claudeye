@@ -9,6 +9,7 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync, rmSync } from "node:fs";
 import { homedir, platform, networkInterfaces } from "node:os";
+import { randomBytes } from "node:crypto";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -35,6 +36,7 @@ Options:
                               (default: ~/.claudeye/cache)
   --cache-clear               Clear all cached results and exit
   --no-open                   Don't auto-open the browser
+  --auth-user <user:pass>     Add an authenticated user (repeatable)
   -h, --help                  Show this help message
 `.trim();
 
@@ -48,6 +50,7 @@ let evalsPath = "";
 let cacheMode = "on";
 let cachePath = "";
 let cacheClear = false;
+const authUsers = [];
 
 /** Read the next value for a flag, supporting both `--flag value` and `--flag=value`. */
 function readFlagValue(flag, idx) {
@@ -110,6 +113,10 @@ for (let i = 0; i < args.length; i++) {
       break;
     case "--no-open":
       autoOpen = false;
+      break;
+    case "--auth-user":
+      authUsers.push(inlineValue ?? readFlagValue(flag, i));
+      if (inlineValue === null) i++;
       break;
     default:
       console.error(`Unknown option: ${args[i]}\n`);
@@ -224,11 +231,15 @@ function printBanner() {
 `);
 }
 
-function logServerInfo(port, localUrl) {
+function logServerInfo(port, localUrl, resolvedAuthUsers) {
   printBanner();
   console.log(`Starting Claudeye dashboard...`);
   console.log(`  Projects: ${projectsPath}`);
   if (evalsPath) console.log(`  Evals:    ${evalsPath}`);
+  if (resolvedAuthUsers.length > 0) {
+    const usernames = resolvedAuthUsers.map((u) => u.split(":")[0]).join(", ");
+    console.log(`  Auth:     enabled for ${usernames}`);
+  }
   if (cacheMode === "off") {
     console.log(`  Cache:    disabled`);
   } else {
@@ -252,7 +263,21 @@ async function main() {
   }
 
   const localUrl = `http://localhost:${port}`;
-  logServerInfo(port, localUrl);
+
+  // Merge CLI --auth-user with CLAUDEYE_AUTH_USERS env var (CLI takes precedence)
+  const envAuthUsers = process.env.CLAUDEYE_AUTH_USERS
+    ? process.env.CLAUDEYE_AUTH_USERS.split(",").filter(Boolean)
+    : [];
+  const allAuthUsers = [...authUsers, ...envAuthUsers];
+  const seenUsers = new Set();
+  const resolvedAuthUsers = allAuthUsers.filter((entry) => {
+    const username = entry.split(":")[0];
+    if (seenUsers.has(username)) return false;
+    seenUsers.add(username);
+    return true;
+  });
+
+  logServerInfo(port, localUrl, resolvedAuthUsers);
 
   const env = {
     ...process.env,
@@ -269,6 +294,10 @@ async function main() {
   }
   if (cachePath) {
     env.CLAUDEYE_CACHE_PATH = cachePath;
+  }
+  if (resolvedAuthUsers.length > 0) {
+    env.CLAUDEYE_AUTH_USERS = resolvedAuthUsers.join(",");
+    env.CLAUDEYE_AUTH_SECRET = randomBytes(32).toString("hex");
   }
 
   const child = spawn(process.execPath, [serverScript], {

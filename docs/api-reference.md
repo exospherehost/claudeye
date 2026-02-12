@@ -1,6 +1,6 @@
 # Claudeye API Reference
 
-Full API documentation for Claudeye's custom evals and enrichments system. For a quick overview, see the [README](../README.md).
+Full API documentation for Claudeye's custom evals, enrichments, and dashboard filters. For a quick overview, see the [README](../README.md).
 
 ---
 
@@ -224,6 +224,210 @@ app.enrich('advanced-metrics',
 
 ---
 
+## `app.dashboard.view(name, options?)`
+
+Create a named dashboard view. Views group related filters into focused sets. Each view appears as a card on `/dashboard` and has its own route at `/dashboard/[viewName]`.
+
+- **`name`** - unique string identifier for the view
+- **`options.label`** - human-readable label displayed on the card (defaults to the name)
+
+Returns a `DashboardViewBuilder` with a chainable `.filter()` method for registering filters within the view.
+
+### `DashboardViewBuilder`
+
+```ts
+interface DashboardViewBuilder {
+  filter(name: string, fn: FilterFunction, options?: FilterOptions): DashboardViewBuilder;
+}
+```
+
+The view builder's `.filter()` returns the view builder (not the app), so you can chain multiple filters within a view:
+
+```js
+app.dashboard.view('performance', { label: 'Performance Metrics' })
+  .filter('turn-count', ({ stats }) => stats.turnCount, { label: 'Turn Count' })
+  .filter('tool-calls', ({ stats }) => stats.toolCallCount, { label: 'Tool Calls' });
+```
+
+### `ViewOptions`
+
+```ts
+interface ViewOptions {
+  label?: string;  // Human-readable label (defaults to name)
+}
+```
+
+### Routing
+
+| URL | Behavior |
+|-----|----------|
+| `/dashboard` | If named views exist, shows a view index (card grid). If only default filters, shows them directly. If nothing registered, shows an empty state. |
+| `/dashboard/[viewName]` | Specific named view with its filters and sessions table. |
+
+### Examples
+
+```js
+// Two focused views
+app.dashboard.view('performance', { label: 'Performance Metrics' })
+  .filter('turn-count', ({ stats }) => stats.turnCount, { label: 'Turn Count' })
+  .filter('tool-calls', ({ stats }) => stats.toolCallCount, { label: 'Tool Calls' });
+
+app.dashboard.view('quality', { label: 'Quality Checks' })
+  .filter('has-errors', ({ entries }) =>
+    entries.some(e => e.type === 'assistant' &&
+      Array.isArray(e.message?.content) &&
+      e.message.content.some(b => b.type === 'tool_use' && b.is_error)),
+    { label: 'Has Errors' })
+  .filter('primary-model', ({ stats }) => stats.models[0] || 'unknown',
+    { label: 'Primary Model' });
+
+// Backward-compat: app.dashboard.filter() still works (goes to "default" view)
+app.dashboard.filter('uses-subagents', ({ stats }) => stats.subagentCount > 0,
+  { label: 'Uses Subagents' }
+);
+```
+
+---
+
+## `app.dashboard.filter(name, fn, options?)`
+
+Register a dashboard filter on the **default** view. For organizing filters into named views, see `app.dashboard.view()` above.
+
+- **`name`** - unique string identifier for the filter
+- **`fn`** - function receiving an `EvalContext` and returning a `FilterValue` (`boolean`, `number`, or `string`)
+- **`options.label`** - human-readable label for the filter tile (defaults to the name)
+- **`options.condition`** - optional condition function to gate this filter
+
+The return type auto-determines the UI control:
+
+| Return type | UI control | Behavior |
+|-------------|-----------|----------|
+| `boolean` | Three-state toggle | Cycle: All &rarr; Yes &rarr; No &rarr; All |
+| `number` | Range slider | Dual-handle slider with min/max inputs |
+| `string` | Multi-select dropdown | Checkboxes with Select All / Clear |
+
+Filter values are computed server-side (reusing existing caching), then filtering happens client-side for instant interaction.
+
+### Examples
+
+```js
+// Boolean filter: toggle sessions that have tool errors
+app.dashboard.filter('has-errors', ({ entries }) =>
+  entries.some(e =>
+    e.type === 'assistant' &&
+    Array.isArray(e.message?.content) &&
+    e.message.content.some(b => b.type === 'tool_use' && b.is_error)
+  ),
+  { label: 'Has Errors' }
+);
+
+// Number filter: range slider for turn count
+app.dashboard.filter('turn-count', ({ stats }) => stats.turnCount,
+  { label: 'Turn Count' }
+);
+
+// String filter: multi-select for primary model
+app.dashboard.filter('primary-model', ({ stats }) => stats.models[0] || 'unknown',
+  { label: 'Primary Model' }
+);
+
+// Number filter: range slider for tool call count
+app.dashboard.filter('tool-calls', ({ stats }) => stats.toolCallCount,
+  { label: 'Tool Calls' }
+);
+
+// Boolean filter: sessions with subagents
+app.dashboard.filter('uses-subagents', ({ stats }) => stats.subagentCount > 0,
+  { label: 'Uses Subagents' }
+);
+
+// String filter: session duration bucket
+app.dashboard.filter('duration-bucket', ({ stats }) => {
+  const ms = parseInt(stats.duration) || 0;
+  if (ms < 60000) return 'Under 1m';
+  if (ms < 300000) return '1-5m';
+  if (ms < 900000) return '5-15m';
+  return 'Over 15m';
+}, { label: 'Duration' });
+
+// With a per-filter condition: only compute for non-empty sessions
+app.dashboard.filter('avg-tools-per-turn',
+  ({ stats }) => stats.turnCount > 0
+    ? Math.round(stats.toolCallCount / stats.turnCount * 10) / 10
+    : 0,
+  {
+    label: 'Avg Tools/Turn',
+    condition: ({ entries }) => entries.length > 0,
+  }
+);
+```
+
+### How It Works
+
+1. When the `/dashboard` page loads, the server action iterates over all projects and sessions
+2. For each session, it loads the JSONL log, computes stats, and runs all registered filters
+3. Filter metadata is derived automatically: min/max for numbers, unique values for strings
+4. The full payload is sent to the client, which renders tiles and a filterable sessions table
+5. User interactions (toggle, slider, dropdown) filter the table instantly — no server roundtrip
+
+### Global Condition
+
+Dashboard filters respect the global condition set via `app.condition()`. If the global condition returns `false` for a session, all filters are skipped for that session.
+
+```js
+// Skip empty sessions across evals, enrichments, AND dashboard filters
+app.condition(({ entries }) => entries.length > 0);
+```
+
+---
+
+## `app.auth(options)`
+
+Configure username/password authentication. When at least one user is configured (via `app.auth()`, `--auth-user`, or `CLAUDEYE_AUTH_USERS` env var), all UI routes are protected by a login page. Users from all sources are merged.
+
+- **`options.users`** - array of `{ username: string; password: string }` objects
+
+```ts
+app.auth({ users: [
+  { username: 'admin', password: 'secret' },
+  { username: 'viewer', password: 'readonly' },
+] });
+```
+
+Chainable — returns the app instance:
+
+```js
+app
+  .auth({ users: [{ username: 'admin', password: 'secret' }] })
+  .eval('my-eval', fn)
+  .listen();
+```
+
+When auth is active:
+- All UI routes redirect to `/login` for unauthenticated users
+- A signed HMAC-SHA256 session cookie (`claudeye_session`) is set on login, with 24h expiry
+- The navbar shows a **Sign out** button
+- If no users are configured, auth is completely disabled (no login page, no blocking)
+
+### Multiple sources
+
+Users from CLI, environment, and API are merged:
+
+```bash
+# CLI
+claudeye --evals ./my-evals.js --auth-user ops:pass123
+
+# Environment (comma-separated user:password pairs)
+CLAUDEYE_AUTH_USERS=admin:secret claudeye --evals ./my-evals.js
+
+# API (in my-evals.js)
+app.auth({ users: [{ username: 'dev', password: 'devpass' }] });
+```
+
+All three users (`ops`, `admin`, `dev`) would be valid.
+
+---
+
 ## `app.listen(port?, options?)`
 
 Start the Claudeye dashboard server.
@@ -330,6 +534,56 @@ type EnrichmentResult = Record<string, string | number | boolean>;
 
 ```ts
 type ConditionFunction = (context: EvalContext) => boolean | Promise<boolean>;
+```
+
+### `FilterValue`
+
+```ts
+type FilterValue = boolean | number | string;
+```
+
+### `FilterFunction`
+
+```ts
+type FilterFunction = (context: EvalContext) => FilterValue | Promise<FilterValue>;
+```
+
+### `FilterOptions`
+
+```ts
+interface FilterOptions {
+  label?: string;                // Human-readable tile label (defaults to name)
+  condition?: ConditionFunction; // Per-filter gate
+}
+```
+
+### `FilterMeta`
+
+Metadata auto-derived from computed filter values. Discriminated union by `type`:
+
+```ts
+type FilterMeta =
+  | { type: 'boolean'; name: string; label: string }
+  | { type: 'number';  name: string; label: string; min: number; max: number }
+  | { type: 'string';  name: string; label: string; values: string[] };
+```
+
+### `DashboardPayload`
+
+```ts
+interface DashboardPayload {
+  sessions: DashboardSessionRow[];  // All sessions with computed filter values
+  filterMeta: FilterMeta[];         // One per registered filter
+  totalDurationMs: number;          // Server-side computation time
+}
+
+interface DashboardSessionRow {
+  projectName: string;
+  sessionId: string;
+  lastModified: string;             // ISO 8601
+  lastModifiedFormatted: string;    // Human-readable
+  filterValues: Record<string, FilterValue>;
+}
 ```
 
 ---
@@ -463,7 +717,7 @@ Cache invalidation works the same way, based on the subagent log file's mtime+si
 
 ## Full Example
 
-A complete evals file combining evals, enrichments, conditions, and subagent scope:
+A complete evals file combining evals, enrichments, dashboard views, conditions, and subagent scope:
 
 ```js
 import { createApp } from 'claudeye';
@@ -532,6 +786,30 @@ app.enrich('subagent-info',
   { condition: ({ stats }) => stats.subagentCount > 0 }
 );
 
+// --- Dashboard views (visible at /dashboard) ---
+
+// Performance view: turn & tool metrics
+app.dashboard.view('performance', { label: 'Performance Metrics' })
+  .filter('turn-count', ({ stats }) => stats.turnCount, { label: 'Turn Count' })
+  .filter('tool-calls', ({ stats }) => stats.toolCallCount, { label: 'Tool Calls' });
+
+// Quality view: error & model filters
+app.dashboard.view('quality', { label: 'Quality Checks' })
+  .filter('has-errors', ({ entries }) =>
+    entries.some(e =>
+      e.type === 'assistant' &&
+      Array.isArray(e.message?.content) &&
+      e.message.content.some(b => b.type === 'tool_use' && b.is_error)
+    ),
+    { label: 'Has Errors' })
+  .filter('primary-model', ({ stats }) => stats.models[0] || 'unknown',
+    { label: 'Primary Model' });
+
+// Backward-compat: app.dashboard.filter() still works (goes to "default" view)
+app.dashboard.filter('uses-subagents', ({ stats }) => stats.subagentCount > 0,
+  { label: 'Uses Subagents' }
+);
+
 // --- Subagent-scoped evals ---
 
 app.eval('explore-thoroughness', ({ entries }) => ({
@@ -556,11 +834,15 @@ app.enrich('agent-summary', ({ stats }) => ({
 
 ## Tips
 
-- Each eval and enricher is wrapped in a try/catch. If one throws, the others still run and the error is shown in the UI.
+- Each eval, enricher, and filter is wrapped in a try/catch. If one throws, the others still run and the error is shown in the UI.
 - Eval scores are clamped to 0-1. If you don't provide a score, it defaults to 1.0.
-- Both eval and enricher functions can be async.
-- Condition functions can also be async.
+- Eval, enricher, filter, and condition functions can all be async.
 - Re-registering with the same name replaces the previous function.
 - Click "Re-run" in either panel to re-execute against the current session (always bypasses cache).
-- You can mix `app.eval()`, `app.enrich()`, and `app.condition()` calls freely in the same file.
+- You can mix `app.eval()`, `app.enrich()`, `app.condition()`, `app.dashboard.filter()`, and `app.dashboard.view()` calls freely in the same file.
 - Per-item condition errors are treated as eval/enrichment errors (not skips), so you'll see the error message in the UI.
+- Dashboard filter return types are auto-detected from the first non-null value: `boolean` &rarr; toggle, `number` &rarr; range slider, `string` &rarr; multi-select.
+- Filter values are computed once server-side; all subsequent filtering is instant on the client.
+- Use `app.dashboard.view()` to organize filters into focused groups. Each view gets its own `/dashboard/[viewName]` route.
+- The same filter name can be used in different views without conflict.
+- `app.dashboard.filter()` registers to the "default" view for backward compatibility.

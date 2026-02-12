@@ -1,24 +1,23 @@
 /**
- * Executes all registered enricher functions against a session's log entries.
- * Each enricher is individually try/caught so one failure doesn't block others.
+ * Executes all registered filter functions against a session's log entries.
+ * Each filter is individually try/caught so one failure doesn't block others.
  */
-import { getRegisteredEnrichers } from "./enrich-registry";
+import { getRegisteredFilters } from "./dashboard-registry";
 import { getGlobalCondition } from "./condition-registry";
 import type { EvalContext, EvalLogStats } from "./types";
-import type { EnrichRunResult, EnrichRunSummary, RegisteredEnricher } from "./enrich-types";
+import type { FilterComputeResult, FilterComputeSummary, RegisteredFilter } from "./dashboard-types";
 
-export async function runAllEnrichers(
+export async function runAllFilters(
   entries: Record<string, unknown>[],
   stats: EvalLogStats,
   projectName: string,
   sessionId: string,
-  enrichersToRun?: RegisteredEnricher[],
-  contextOverrides?: Partial<EvalContext>,
-): Promise<EnrichRunSummary> {
-  const registeredEnrichers = enrichersToRun ?? getRegisteredEnrichers();
-  const results: EnrichRunResult[] = [];
+  filtersToRun?: RegisteredFilter[],
+): Promise<FilterComputeSummary> {
+  const registeredFilters = filtersToRun ?? getRegisteredFilters();
+  const results: FilterComputeResult[] = [];
   const overallStart = performance.now();
-  const context: EvalContext = { entries, stats, projectName, sessionId, scope: 'session', ...contextOverrides };
+  const context: EvalContext = { entries, stats, projectName, sessionId, scope: 'session' };
 
   // Check global condition first
   const globalCondition = getGlobalCondition();
@@ -33,28 +32,28 @@ export async function runAllEnrichers(
   }
 
   if (globalSkip) {
-    // All enrichers skipped due to global condition
-    for (const { name } of registeredEnrichers) {
+    // All filters skipped due to global condition
+    for (const { name } of registeredFilters) {
       results.push({
         name,
-        data: {},
+        value: false,
         durationMs: 0,
         skipped: true,
       });
     }
   } else {
-    const promises = registeredEnrichers.map(async ({ name, fn, condition }): Promise<EnrichRunResult> => {
-      // Check per-enrichment condition
+    const promises = registeredFilters.map(async ({ name, fn, condition }): Promise<FilterComputeResult> => {
+      // Check per-filter condition
       if (condition) {
         try {
           const shouldRun = await condition(context);
           if (!shouldRun) {
-            return { name, data: {}, durationMs: 0, skipped: true };
+            return { name, value: false, durationMs: 0, skipped: true };
           }
         } catch (err) {
           return {
             name,
-            data: {},
+            value: false,
             durationMs: 0,
             error: `Condition error: ${err instanceof Error ? err.message : String(err)}`,
           };
@@ -63,14 +62,14 @@ export async function runAllEnrichers(
 
       const start = performance.now();
       try {
-        const data = await fn(context);
+        const value = await fn(context);
         const durationMs = Math.round(performance.now() - start);
-        return { name, data, durationMs };
+        return { name, value, durationMs };
       } catch (err) {
         const durationMs = Math.round(performance.now() - start);
         return {
           name,
-          data: {},
+          value: false,
           durationMs,
           error: err instanceof Error ? err.message : String(err),
         };
@@ -82,7 +81,7 @@ export async function runAllEnrichers(
       results.push(
         s.status === 'fulfilled'
           ? s.value
-          : { name: '?', data: {}, durationMs: 0, error: 'Unexpected rejection' },
+          : { name: '?', value: false, durationMs: 0, error: 'Unexpected rejection' },
       );
     }
   }

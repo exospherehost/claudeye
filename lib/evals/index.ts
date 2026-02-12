@@ -3,7 +3,8 @@
  * This is the public API surface published via `dist/`.
  */
 export { createApp } from "./app";
-export type { ClaudeyeApp, ClaudeyeAppOptions, EvalOptions, EnrichOptions } from "./app";
+export type { ClaudeyeApp, ClaudeyeAppOptions, EvalOptions, EnrichOptions, DashboardBuilder, DashboardViewBuilder } from "./app";
+export type { AuthUser } from "./auth-registry";
 export type {
   EvalScope,
   EvalContext,
@@ -25,3 +26,20 @@ export type {
   EnrichRunResult,
   EnrichRunSummary,
 } from "./enrich-types";
+export type {
+  FilterValue,
+  FilterFunction,
+  FilterOptions,
+  RegisteredFilter,
+  FilterComputeResult,
+  FilterComputeSummary,
+  FilterMeta,
+  BooleanFilterMeta,
+  NumberFilterMeta,
+  StringFilterMeta,
+  DashboardSessionRow,
+  DashboardPayload,
+  ViewOptions,
+  RegisteredView,
+  DashboardViewInfo,
+} from "./dashboard-types";

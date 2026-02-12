@@ -48,30 +48,22 @@ export async function runAllEvals(
       });
     }
   } else {
-    for (const { name, fn, condition } of registeredEvals) {
+    const promises = registeredEvals.map(async ({ name, fn, condition }): Promise<EvalRunResult> => {
       // Check per-eval condition
       if (condition) {
         try {
           const shouldRun = await condition(context);
           if (!shouldRun) {
-            results.push({
-              name,
-              pass: false,
-              score: 0,
-              durationMs: 0,
-              skipped: true,
-            });
-            continue;
+            return { name, pass: false, score: 0, durationMs: 0, skipped: true };
           }
         } catch (err) {
-          results.push({
+          return {
             name,
             pass: false,
             score: 0,
             durationMs: 0,
             error: `Condition error: ${err instanceof Error ? err.message : String(err)}`,
-          });
-          continue;
+          };
         }
       }
 
@@ -79,24 +71,33 @@ export async function runAllEvals(
       try {
         const result = await fn(context);
         const durationMs = Math.round(performance.now() - start);
-        results.push({
+        return {
           name,
           pass: result.pass,
           score: clampScore(result.score),
           message: result.message,
           metadata: result.metadata,
           durationMs,
-        });
+        };
       } catch (err) {
         const durationMs = Math.round(performance.now() - start);
-        results.push({
+        return {
           name,
           pass: false,
           score: 0,
           durationMs,
           error: err instanceof Error ? err.message : String(err),
-        });
+        };
       }
+    });
+
+    const settled = await Promise.allSettled(promises);
+    for (const s of settled) {
+      results.push(
+        s.status === 'fulfilled'
+          ? s.value
+          : { name: '?', pass: false, score: 0, durationMs: 0, error: 'Unexpected rejection' },
+      );
     }
   }
 

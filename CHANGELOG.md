@@ -1,12 +1,56 @@
 # Changelog
 
+## Unreleased
+
+### Authentication
+
+- Opt-in username/password auth that protects all UI routes
+- `app.auth({ users: [...] })` programmatic API, chainable with other builder methods
+- `--auth-user admin:secret` CLI flag (repeatable for multiple users)
+- `CLAUDEYE_AUTH_USERS=admin:secret,user2:pass2` environment variable
+- All three sources merge: CLI + env + API users are combined
+- `/login` page with centered card UI, styled with existing design tokens
+- Signed HMAC-SHA256 session cookie with 24h expiry (Edge-compatible via Web Crypto API)
+- Next.js middleware redirects unauthenticated users to `/login` with `?from=` for post-login redirect
+- Navbar shows **Sign out** button when auth is active
+- No auth configured = everything works exactly as before (zero breaking changes)
+
+### Multiple Named Dashboard Views
+
+- `app.dashboard.view(name, options?)` to create named dashboard views with focused sets of filters
+- `DashboardViewBuilder` with chainable `.filter()` for registering filters within a view
+- `/dashboard` shows a view index (card grid) when named views are registered
+- `/dashboard/[viewName]` renders a specific view with its filters and sessions table
+- Backward compatible: `app.dashboard.filter()` still works, registers to the "default" view
+- When only default filters exist (no named views), `/dashboard` renders them directly
+- `listDashboardViews()` server action returns view info with filter counts
+- `computeDashboard(viewName?)` accepts an optional view name to scope filters
+- New types: `ViewOptions`, `RegisteredView`, `DashboardViewInfo`
+- See `examples/multi-view-dashboard.js` for a complete sample
+
+### Dashboard Filters
+
+- `app.dashboard.filter(name, fn, options?)` to register cross-project filters visible at `/dashboard`
+- **Boolean filters** render as three-state toggle tiles (All / Yes / No)
+- **Number filters** render as dual-handle range sliders with min/max text inputs
+- **String filters** render as multi-select dropdown tiles with Select All / Clear actions
+- Return type auto-determines the UI control — no manual configuration needed
+- Filter values computed server-side, filtering happens client-side for instant interaction
+- `FilterMeta` auto-derived from data: min/max for numbers, unique values for strings
+- Per-filter conditions via `options.condition` to gate individual filters
+- Global condition (`app.condition()`) respected — skips all filters for non-matching sessions
+- Sessions table with dynamic columns for each filter value, pagination, and project/session links
+- Navigation bar updated with Projects and Dashboard links
+- Individual error isolation — one failing filter doesn't block others
+- See `examples/dashboard-filters.js` for a complete sample
+
 ## 0.3.3 - First Public Release
 
 ### Dashboard
 
 - **Projects & sessions browser** with keyword search, date range presets (Last Hour, Today, 7 Days, 30 Days), custom date picker, and pagination (25 per page)
 - **Full execution trace viewer** showing every message, tool call, thinking block, and system event
-- **Virtual scrolling** for sessions with thousands of entries
+- **Virtual scrolling** for sessions with thousands of entries without performance issues
 - **Session stats bar** showing turns, user/assistant messages, tool calls, subagents, duration, and models
 - **Nested subagent logs** with lazy loading and inline expansion
 - **Tool I/O cards** with collapsible input/output, timestamps, duration, and copy buttons

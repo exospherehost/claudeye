@@ -9,9 +9,13 @@
  */
 import { registerEval } from "./registry";
 import { registerEnricher } from "./enrich-registry";
+import { registerFilter, registerView } from "./dashboard-registry";
 import { setGlobalCondition } from "./condition-registry";
+import { registerAuthUsers } from "./auth-registry";
+import type { AuthUser } from "./auth-registry";
 import type { ConditionFunction, EvalFunction, EvalScope } from "./types";
 import type { EnrichFunction } from "./enrich-types";
+import type { FilterFunction, FilterOptions, ViewOptions } from "./dashboard-types";
 
 const LOADING_KEY = "__CLAUDEYE_LOADING_EVALS__";
 
@@ -40,6 +44,18 @@ export interface EnrichOptions {
   subagentType?: string;
 }
 
+export interface DashboardViewBuilder {
+  /** Register a filter on this view. Returns the view builder for chaining. */
+  filter(name: string, fn: FilterFunction, options?: FilterOptions): DashboardViewBuilder;
+}
+
+export interface DashboardBuilder {
+  /** Register a dashboard filter on the default view. Returns the app for chaining. */
+  filter(name: string, fn: FilterFunction, options?: FilterOptions): ClaudeyeApp;
+  /** Create or get a named dashboard view. Returns a view builder. */
+  view(name: string, options?: ViewOptions): DashboardViewBuilder;
+}
+
 export interface ClaudeyeApp {
   /** Register a global condition that gates all evals and enrichments. Chainable. */
   condition(fn: ConditionFunction): ClaudeyeApp;
@@ -47,6 +63,10 @@ export interface ClaudeyeApp {
   eval(name: string, fn: EvalFunction, options?: EvalOptions): ClaudeyeApp;
   /** Register an enricher function. Chainable. */
   enrich(name: string, fn: EnrichFunction, options?: EnrichOptions): ClaudeyeApp;
+  /** Configure username/password authentication. Chainable. */
+  auth(options: { users: AuthUser[] }): ClaudeyeApp;
+  /** Dashboard filter registration namespace. */
+  dashboard: DashboardBuilder;
   /** Start the Claudeye dashboard server. No-op when loading evals in the Next.js process. */
   listen(port?: number, options?: ClaudeyeAppOptions): Promise<void>;
 }
@@ -66,6 +86,28 @@ export function createApp(): ClaudeyeApp {
     enrich(name: string, fn: EnrichFunction, options?: EnrichOptions): ClaudeyeApp {
       registerEnricher(name, fn, options?.condition, options?.scope, options?.subagentType);
       return app;
+    },
+
+    auth(options: { users: AuthUser[] }): ClaudeyeApp {
+      registerAuthUsers(options.users);
+      return app;
+    },
+
+    dashboard: {
+      filter(name: string, fn: FilterFunction, options?: FilterOptions): ClaudeyeApp {
+        registerFilter(name, fn, options?.label, options?.condition, "default");
+        return app;
+      },
+      view(name: string, options?: ViewOptions): DashboardViewBuilder {
+        registerView(name, options?.label ?? name);
+        const viewBuilder: DashboardViewBuilder = {
+          filter(filterName: string, fn: FilterFunction, filterOptions?: FilterOptions): DashboardViewBuilder {
+            registerFilter(filterName, fn, filterOptions?.label, filterOptions?.condition, name);
+            return viewBuilder;
+          },
+        };
+        return viewBuilder;
+      },
     },
 
     async listen(port?: number, options?: ClaudeyeAppOptions): Promise<void> {
