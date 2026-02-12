@@ -1,7 +1,7 @@
 /** Top navigation bar with logo, app title, and theme toggle. */
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { LayoutDashboard, FolderOpen, LogOut } from "lucide-react";
@@ -19,13 +19,9 @@ const NAV_LINKS = [
 export const Navbar: React.FC = () => {
   const pathname = usePathname();
   const router = useRouter();
-  const [authActive, setAuthActive] = useState(false);
-
-  // Detect auth on the client by checking for the session cookie.
-  // This avoids a server-round-trip just to show/hide the logout button.
-  useEffect(() => {
-    setAuthActive(document.cookie.includes("claudeye_auth"));
-  }, []);
+  const [authActive] = useState(
+    () => typeof document !== "undefined" && document.cookie.includes("claudeye_auth"),
+  );
 
   async function handleLogout() {
     const result = await logout();
